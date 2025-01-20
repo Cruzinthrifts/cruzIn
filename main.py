@@ -1,69 +1,92 @@
+from datetime import datetime, timedelta, timezone
+from playwright.sync_api import sync_playwright
+from supabase import create_client, Client
 
-import time
-#testing python
+# Supabase Configuration
+SUPABASE_URL = "https://xrogtywyggbgulnyaqqa.supabase.co"  # Replace with your Supabase project URL
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhyb2d0eXd5Z2diZ3VsbnlhcXFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzczMzY1MzMsImV4cCI6MjA1MjkxMjUzM30.2wFFIjgT-DtbPRBFgcqNg7n2vyNNaBcKXaq5Q8PRLs0"  # Replace with your Supabase anon key
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-first_name = "Cruz"
-food = "pizza"
-email = "bbb@yahoo.com"
-age = 25
+#Tool used to pull funding articles from businesswire using playwright and pushing the most recent articles to a supabase
+#database to be used with openAI LLm to extra the specific information needed for the funding articles(company name, funding amount
+#, investers, date, source).  
+#
+#(__This Tool Is Set to the last Two Days And Can be adjusted On line 15 and 67__}
+def scrape_recent_articles(days=2):
+    with sync_playwright() as p:
+        # Launch a headless browser
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
 
-#stings
-print(first_name)
+        # Navigate to the target URL
+        page.goto("https://www.businesswire.com/portal/site/home/news/subject/?vnsId=31355")
 
-#stings and integer
-print(f"hello {first_name} you are {age} and love to eat {food}")
+        # Wait for the articles to load
+        page.wait_for_selector(".bwTitleLink")
 
-#float
-height = 6.2
-gpa = 4.2
-#boolean
-is_student = False
+        # Locate all article links and timestamps
+        articles = page.locator(".bwTitleLink")
+        timestamps = page.locator(".bwTimestamp time")
+        count = articles.count()
 
-if is_student:
-    print("what are you studing.")
-else:
-    print("good for you")
+        # Calculate the cutoff date (as an offset-aware datetime)
+        now = datetime.now(timezone.utc)
+        cutoff_date = now - timedelta(days=days)
 
-    #how to print type cast functions
+        for i in range(count):
+            # Extract the title, link, and date
+            title = articles.nth(i).locator("span").text_content().strip()
+            link = articles.nth(i).get_attribute("href")
+            full_link = f"https://www.businesswire.com{link}" if link.startswith("/") else link
 
-gpa = int(gpa)
+            # Parse and filter by date (as an offset-aware datetime)
+            date_str = timestamps.nth(i).get_attribute("datetime")
+            article_date = datetime.fromisoformat(date_str) if date_str else None
 
-print(type(gpa))
+            if article_date and article_date >= cutoff_date:
+                # Save to Supabase
+                save_to_supabase(title, full_link)
 
-print(gpa)
+        # Close the browser
+        browser.close()
 
-#while 1==1 :
-    #print("help Im stuck in a loop")#
-name = None
-#while not name:
-    #name = input("enter your name: ")
+def save_to_supabase(title, link):
+    # Insert data into Supabase
+    data = {
+        "title": title,
+        "link": link
+    }
+    response = supabase.table("articles").insert(data).execute()
 
-    #print("hello "+name) 
+    # Check if the response is successful
+    if response.data:
+        print(f"Article saved: {title}")
+    else:
+        print(f"Failed to save article: {response}")
 
-    #for loops 
+# Run the scraper
+scrape_recent_articles(days=2)
 
-    #while loop = unlimted times
-    #for loop = limited times
-
-#for i in range(50,100,2):
-    # print(i)
-
-
-#for seconds in range (10,0,-1):
-       # print(seconds)
-      #  time.sleep(1)
-#print("Happy new Year!")
-
-
-######Nested loops#######
+#Code test#
 
 #rows = int(input("how many rows: "))
 #columns = int(input("how many columns: "))
-#symbol = input("enter a symbol to use: ")
+#symbol = input("enter a symbol to use: 
+# import asyncio
+# from crawl4ai import AsyncWebCrawler, CacheMode
 
-#for i in range(rows):
-    #for j in range(columns):
-        #print(symbol, end="")
-    #print()
+# async def main():
+#     async with AsyncWebCrawler(verbose=True) as crawler:
+#         # We'll add our crawling code here
+#         pass
 
-    
+# if __name__ == "__main__":
+#     asyncio.run(main())
+
+#     async def main():
+#      async with AsyncWebCrawler(verbose=True) as crawler:
+#         result = await crawler.arun(url="https://www.businesswire.com/portal/site/home/news/subject/?vnsId=31355")
+#         print(f"Basic crawl result: {result.markdown[:5000]}")  # Print first 500 characters
+
+# asyncio.run(main())
+
